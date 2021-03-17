@@ -81,22 +81,18 @@ def detpoints(ma, mb, mx, my, samples=0):
             is the strategy where measurements y in preparations x return the i-th
             result. A conventional ordering is to take the lexicographic one:
             `[[(x0, y0), (x0, y1)], [(x1, y0), (x1, y1)], [(x2, y0), (x2, y1)]]`
+
+    Todo:
+        * Sampling version (use more_itertools.random_product)
     """
 
-    indeps = independent_strategies(ma, mb, my, samples, segmented=True)
+    indeps = np.asarray(independent_strategies(ma, mb, my, samples, segmented=True))
 
-    # All possible message orderings: mx times [0, ..., ma] x ... x [0, ..., ma]
-    # but take only the ones with all independent ma's in it.
-    redundants = [r for r in product(range(ma), repeat=mx) if iselement(range(ma), r)]
+    # Indexes to include needed redundant segments in all allowed positions.
+    orderings = [r for r in product(range(ma), repeat=mx) if iselement(range(ma), r)]
+    detps = indeps[:,orderings,:].reshape(-1, mx * my)
 
-    detps = []
-    for i in range(len(indeps)):
-        for messages in redundants:
-            detps.append([indeps[i][a] for a in messages])
-
-    # Flatten the sublists and return unique strategies.
-    detps = [list(chain(*detps[i])) for i in range(len(detps))]
-    return [el for idx,el in enumerate(detps) if el not in detps[:idx]]
+    return np.unique(detps, axis=0)
 
 
 def symmetries(mb, mx, my):
