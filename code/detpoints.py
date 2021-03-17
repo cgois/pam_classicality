@@ -1,15 +1,11 @@
 """
 Usage: call "python detpoints.py --help"
-
-Only works for mb = 2
-Each element of each strategy is of the form p(b = 0 | a, y)
-
-Todo:
-    * Extend for all `mb`.
 """
 
 import argparse
 from itertools import product, chain, permutations
+from random import sample, randrange, randint
+
 import numpy as np
 
 
@@ -22,37 +18,72 @@ def iselement(els, l):
     return True
 
 
-def independent_strategies(ma, mb, my):
+def independent_strategies(ma, mb, my, samples=0, segmented=False):
     """Generate all single party strategies of length ma * my
 
-    Enumerate n_lambdas integers and convert to a binary string with a suitable
-    fixed length, then convert to list of integers.
+    Enumerate n_lambdas integers and convert to an `mb`-ary representation string,
+    then convert to a list of integers.
 
     Args:
-        ma: Nof. independent preparations.
-        mb: Nof. possible measurement results (nof. effects)
-        my: Nof. allowed measurements.
+        ma: nof. independent preparations.
+        mb: nof. effects per measurement.
+        my: nof. available measurements.
+        samples: if `0`, generates all strategies, else sample `samples` strategies.
+        segmented: segment coeffients corresponding to each preparation.
+            e.g.: if ma = my = 2, then [0, 1, 1, 0] -> [[0, 1], [1, 0]].
+
+    Returns:
+        list: each row is a strategy in which the coefficients `i` stand for the
+            deterministic result represented in the given strategy. Example: with
+            `ma = 2`, `mb = 3`, `my = 2`, a row `[[0, 2], [1, 0]]` is the strategy
+            where the operations `[[(a0, y0), (a0, y1)], [(a1, y0), (a1, y1)]]`
+            return results `0, 2, 1` and `0`, respectively.
     """
 
-    cpp = my * (mb - 1)  # nof. coefficients per preparation.
-    stlen = ma *  cpp  # length of each strategy.
-    n_lambdas = ma ** stlen
-    detp = ["{:0{}b}".format(el, stlen) for el in range(n_lambdas)]
-    detp = [[int(digit) for digit in el] for el in detp] # Convert binary str to list of ints.
+    width = ma * my
+    shift = mb ** width  # To include trailing zeros.
+    n_lambdas = mb ** width
 
-    # Split a's in each strategy, e.g.: [0, 1, 1, 0] -> [[0, 1], [1, 0]] if ma = my = 2.
-    return [[detp[i][j:j+cpp] for j in range(0, stlen, cpp)] for i in range(n_lambdas)]
+    if samples:
+        try:
+            samples = sample(range(0, n_lambdas), samples)
+        except OverflowError: # Can't use unique sampling if n_lambdas is too large.
+            samples = [randint(0, n_lambdas) for _ in range(samples)]
+        detp = [np.base_repr(el + shift, base=mb)[-width:] for el in samples]
+    else:  # All strategies.
+        detp = [np.base_repr(el + shift, base=mb)[-width:] for el in range(n_lambdas)]
+
+    detp = [[int(digit) for digit in el] for el in detp]
+
+    if segmented:
+        return [[detp[i][j:j+my] for j in range(0, width, my)] for i in range(n_lambdas)]
+    else:
+        return detp
 
 
-def detpoints(ma, mb, mx, my):
-    """Build a PAM scenario deterministic strategies.
+def detpoints(ma, mb, mx, my, samples=0):
+    """Build a PAM scenario's deterministic strategies.
 
-    Sample ma independent strategies and repeat mx - ma blocks in allowed
-    positions. Each row is a deterministic strategy. Coefficients stand for
-    [p(0 | 0, 0), ..., p(mb-1 | 0, 0), p(0 | 0, 1), ..., p(mb-1 | mx my)]
+    Sample independent strategies for `ma` preparations then repeat `mx - ma` blocks
+    in all meaningful positions. See ../docs/detpoints.tex.
+
+    Args:
+        ma: nof. independent preparations.
+        mb: nof. effects per measurement.
+        mx: nof. total preparations.
+        my: nof. available measurements.
+        samples: if `0`, generates all strategies, else sample `samples` strategies.
+
+    Returns:
+        list: each row is a strategy in which the coefficients `i` stand for the
+            deterministic result represented in the given strategy. Example: with
+            `ma = 2`, `mb = 3`, `mx = 3`, `my = 2`, a row `[[0, 2], [1, 0], [0, 2]]`
+            is the strategy where measurements y in preparations x return the i-th
+            result. A conventional ordering is to take the lexicographic one:
+            `[[(x0, y0), (x0, y1)], [(x1, y0), (x1, y1)], [(x2, y0), (x2, y1)]]`
     """
 
-    indeps = independent_strategies(ma, mb, my)
+    indeps = independent_strategies(ma, mb, my, samples, segmented=True)
 
     # All possible message orderings: mx times [0, ..., ma] x ... x [0, ..., ma]
     # but take only the ones with all independent ma's in it.
