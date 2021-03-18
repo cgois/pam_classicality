@@ -3,17 +3,24 @@
 
 import time
 import functools
-from itertools import product
+from itertools import product, chain
 
+import numpy as np
+from numpy import sin, cos
+import picos
 from scipy.spatial import ConvexHull
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
-import numpy as np
-from numpy import sin, cos
 
 
-"""Decorators"""
+"""Decorators and generalities"""
+
+def chunks(lst, n):
+    """Split lst into n chunks."""
+
+    return [lst[i:i + n] for i in range(0, len(lst), max(1, n))]
+
 
 def hemispherectomy(func):
     """Removes all southern hemisphere vectors."""
@@ -71,8 +78,7 @@ def timeit(func):
     return timeit_wrapper
 
 
-
-"""Utility functions:"""
+"""Operator representations"""
 
 def gell_mann_matrix(j, k, dim=2):
     """Generalized Gell-Mann matrix with indexes j and k for given dimension.
@@ -80,6 +86,9 @@ def gell_mann_matrix(j, k, dim=2):
     j < k: symmetric Gell-Mann matrices.
     j > k: anti-symmetric Gell-Mann matrices.
     j == k: diagonal Gell-Mann matrices.
+
+    For completeness, j = k = 0 returns the identity matrix, which is not
+    properly a Gell-Mann matrix.
 
     Args:
         j (int): operator index in `[0, dim - 1]`.
@@ -122,11 +131,11 @@ def gell_mann_matrices(dim=2):
         list (of ndarrays): identity + all `dim ** 2 - 1` Gell-Mann operators.
     """
 
-    return [gell_mann_matrix(*idxs, dim) for idxs in product(range(dim), repeat=2)]
+    return [gell_mann_matrix(*jk, dim) for jk in product(range(dim), repeat=2)][1:]
 
 
-def bloch_vector(operator):
-    """Generalized Bloch vector in the Gell-Mann matrices basis.
+def matrix2bloch(operator):
+    """Convert an operator to a Bloch vector in the Gell-Mann matrices basis.
 
     Args:
         operator (ndarray): square matrix representation of an operator.
@@ -138,22 +147,32 @@ def bloch_vector(operator):
         * Further testing for dim > 2.
     """
 
-    gms = gell_mann_matrices(operator.shape[0])[1:]
+    operator = np.asarray(operator)
+    gms = gell_mann_matrices(operator.shape[0])
     return [np.trace(operator @ gm) for gm in gms]
 
 
-def density_matrix(vector):
-    pass
+def bloch2matrix(vec):
+    """Convert a generalized Bloch vector to a matrix representation.
+
+    .. math::
+        \rho = \frac{\mathbb{1}_d}{d} + \frac{1}{2} \sum \lambda_i \mb{\sigma}_i
+    Ref.: https://doi.org/10.1016/S0375-9601(03)00941-1
+
+    Todo:
+        * Check dim for perfect square.
+        * Vectorize bloch_vec and gms multiplications.
+    """
+
+    dim = int(np.sqrt(len(vec) + 1))
+    gms = gell_mann_matrices(dim)
+    assert len(gms) == len(vec), "Dimension mismatch"
+
+    gms = [vec[i] * gms[i] for i in range(len(vec))]
+    return (1 / dim) * np.eye(dim) + sum(gms) / 2
 
 
-def bloch2density(bloch):
-    """Takes Bloch vector for a qbit and returns its density operator."""
-    X = np.array([[0, 1], [1, 0]])
-    Y = np.array([[0, -1j], [1j, 0]])
-    Z = np.array([[1, 0], [0, -1]])
-    return (1 / 2) * (np.eye(2) + bloch[0] * X + bloch[1] * Y + bloch[2] * Z)
-
-
+"""Geometry and polyhedra"""
 
 def insphere_radius(verts):
     """Radius of the biggest sphere inscribed in the convex hull of verts."""
@@ -161,37 +180,7 @@ def insphere_radius(verts):
     hull = ConvexHull(verts)
     return np.min(np.abs(hull.equations[:, -1]))  # abs as equations are Ax + b <= 0.
 
-def plot_measurements(meas, insphere=True):
-    """Plot measurement vertices on the Bloch sphere, their hull and the inscribed sphere."""
 
-    chull = ConvexHull(meas)
-    polys = Poly3DCollection([chull.points[simplex]
-                              for simplex in chull.simplices])
-    polys.set_edgecolor([.2, .2, .2, .4])
-    polys.set_linewidth(.8)
-    polys.set_facecolor('g')
-    polys.set_alpha(.15)
-
-    ax = Axes3D(plt.figure())
-    ax.set_xlim3d(-1, 1)
-    ax.set_ylim3d(-1, 1)
-    ax.set_zlim3d(-1, 1)
-    ax.set_box_aspect([1,1,1])
-
-    # Plot polytope
-    ax.add_collection3d(polys)
-
-    if insphere:
-        # Plot insphere
-        radius = insphere_radius(meas)
-        theta = np.linspace(0, 2 * np.pi, 50)
-        phi = np.linspace(0, np.pi, 50)
-        x = radius * np.outer(np.cos(theta), np.sin(phi))
-        y = radius * np.outer(np.sin(theta), np.sin(phi))
-        z = radius * np.outer(np.ones(np.size(theta)), np.cos(phi))
-        ax.plot_surface(x, y, z, shade=False, rstride=1,
-                        cstride=1,alpha=.6, linewidth=0)
-    return ax
 
 
 def rotate(vectors, alpha, beta, gamma):
@@ -210,16 +199,19 @@ def rotate(vectors, alpha, beta, gamma):
     return (yaw @ pitch @ roll @ vectors.T).T
 
 
-
-"""Some useful polyhedra (row-wise vectors):"""
-
-
 @normalize
 def uniform_sphere(N, dim=3):
     """Uniform d-sphere sampling.
 
     Method: Sample from the normal distribution and normalize.
     Ref.: Sec. 2.1 @ http://compneuro.uwaterloo.ca/files/publications/voelker.2017.pdf
+
+    Args:
+        N (int): nof. points to sample.
+        dim (int): dimension where the sphere is embedded (nof. components in vector)
+
+    Returns:
+        ndarray: `N x dim` matrix where each row is a uniformly sampled point on the sphere.
     """
 
     return np.random.normal(0, 1, [N, dim])
@@ -228,32 +220,19 @@ def uniform_sphere(N, dim=3):
 def uniform_ball(N, dim=3):
     """Uniform d-ball sampling
 
-    Method: Sample from the normal distribution and normalize.
+    Method: Uniform sphere sampling in `dim + 2` then discard extra coordinates.
     Ref.: Sec. 3.1 @ http://compneuro.uwaterloo.ca/files/publications/voelker.2017.pdf
+
+    Args:
+        N (int): nof. points to sample.
+        dim (int): dimension where the ball is embedded (nof. components in vector)
+
+    Returns:
+        ndarray: `N x dim` matrix where each row is a uniformly sampled point in the ball.
     """
 
     coords = uniform_sphere(N, dim + 2)
     return coords[:, 0:dim]
-
-
-def projective(N, dim=3):
-    """Exactly N uniformly distributed projective measurements.
-
-    For some draws of `uniform_sphere`, `hemispherectomy` may reduce `N`
-    because of vertices in the equator. We fix `N` by brute force.
-    """
-
-    @antipodals
-    @hemispherectomy
-    def projective_nd(N, dim=3):
-        """Approximately N uniformly distributed projective measurements."""
-
-        return uniform_sphere(2 * N, dim)
-
-    while True:
-        verts = projective_nd(N)
-        if verts.shape[0] == 2 * N: return verts
-        else: continue
 
 
 @normalize
@@ -303,8 +282,131 @@ def dod():
 
 @antipodals
 def mirror_symmetric(theta):
-    """Mirror-symmetric measurements vectors for the given theta."""
+    """Mirror-symmetric measurements vectors for given theta."""
 
     return np.asarray([(0, 0, 1),
                        (sin(theta), 0, cos(theta)),
                        (sin(-theta), 0, cos(-theta))])
+
+
+"""Measurements utilities"""
+
+
+def rand_projective_meas(N, dim=2):
+    """Exactly N uniformly distributed projective measurements.
+
+    For some draws of `uniform_sphere`, `hemispherectomy` may reduce `N`
+    because of vertices in the equator. We fix `N` by brute force.
+
+    WARNING: Only working for d = 2. Must generalize.
+
+    Args:
+        N (int): nof. points to sample.
+        dim (int): state dimension (e.g.: 2 for qubit, 3 for qutrit etc.)
+
+    Returns:
+        ndarray: `N x (dim**2 - 1)` matrix where each row is a generalized Bloch
+            vector of a projective effect in dimension `dim`.
+
+    Todo:
+        * Generalize for d > 2.
+    """
+
+    @antipodals
+    @hemispherectomy
+    def projective_nd(N, dim=2):
+        """Approximately N uniformly distributed projective measurements."""
+
+        return uniform_sphere(2 * N, dim)
+
+    dim = dim ** 2 - 1  # Nof. components in a bloch vector in `dim`.
+    while True:
+        verts = projective_nd(N, dim)
+        if verts.shape[0] == 2 * N: return verts
+        else: continue
+
+
+def incompatibility_robustness(*measurements, **kwargs):
+    """Incompatibility robustness for the given measurements w.r.t. white noise.
+
+    Args:
+        *measurements: where each measurement is a list with its effects.
+        **kwargs: can contain 'solver' (SDP) and 'verb' (verbosity) specification.
+
+    Returns:
+        picos.Solution: its 'value' attribute is the robustness and in 'primals'
+            are the parent POVM operators.
+
+    Example:
+        >>> b0, b1 = np.array([1, 0]), np.array([0, 1])
+        >>> Z0, X0 = np.outer(b0, b0), np.outer(b0 + b1, b0 + b1) / 2
+        >>> Z1, X1 = np.eye(2) - Z0, np.eye(2) - X0
+        >>> incompatibility_robustness([Z0, Z1], [X0, X1]).value
+        0.7071067811559121
+
+    Todo:
+        * Generalize to measurements with more than `dim` effects
+    """
+
+    if "solver" not in kwargs:
+        kwargs["solver"] = "cvxopt"
+    if "verb" not in kwargs:
+        kwargs["verb"] = 0
+    dim = len(args[0])  # Only works for measurements with dim effects
+
+    eta = picos.RealVariable("Robustness", 1)
+    parent = [picos.HermitianVariable(f"G{i}", dim)
+              for i in range(dim ** len(measurements))]  # Parent meas. effects
+
+    prob = picos.Problem()
+    prob.add_constraint(eta <= 1)
+    prob.add_list_of_constraints([G >> 0 for G in parent])
+
+    # Parent POVM constraints to reproduce measurements:
+    block_size = 1
+    for meas in measurements:
+        view = chunks(parent, block_size)
+        for oper in range(dim):
+            parent_equiv = sum(chain(*view[oper::dim]))
+            prob.add_constraint(parent_equiv ==
+                                eta * meas[oper] + (1 - eta) * eye(dim) / dim)
+        block_size *= dim
+
+    prob.set_objective("max", eta)
+    prob.options.solver = kwargs["solver"]
+    prob.options.verbosity = kwargs["verb"]
+    prob.license_warnings = False
+    return prob.solve()
+
+
+def plot_measurements(meas, insphere=True):
+    """Plot measurement vertices on the Bloch sphere, their hull and the inscribed sphere."""
+
+    chull = ConvexHull(meas)
+    polys = Poly3DCollection([chull.points[simplex]
+                              for simplex in chull.simplices])
+    polys.set_edgecolor([.2, .2, .2, .4])
+    polys.set_linewidth(.8)
+    polys.set_facecolor('g')
+    polys.set_alpha(.15)
+
+    ax = Axes3D(plt.figure())
+    ax.set_xlim3d(-1, 1)
+    ax.set_ylim3d(-1, 1)
+    ax.set_zlim3d(-1, 1)
+    ax.set_box_aspect([1,1,1])
+
+    # Plot polytope
+    ax.add_collection3d(polys)
+
+    if insphere:
+        # Plot insphere
+        radius = insphere_radius(meas)
+        theta = np.linspace(0, 2 * np.pi, 50)
+        phi = np.linspace(0, np.pi, 50)
+        x = radius * np.outer(np.cos(theta), np.sin(phi))
+        y = radius * np.outer(np.sin(theta), np.sin(phi))
+        z = radius * np.outer(np.ones(np.size(theta)), np.cos(phi))
+        ax.plot_surface(x, y, z, shade=False, rstride=1,
+                        cstride=1,alpha=.6, linewidth=0)
+    return ax
