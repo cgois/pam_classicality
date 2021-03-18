@@ -9,6 +9,7 @@ from itertools import product, chain, permutations
 from random import sample, randrange, randint
 
 import numpy as np
+from scipy.sparse import coo_matrix
 from more_itertools import random_product
 
 
@@ -88,9 +89,6 @@ def detpoints(ma, mb, mx, my, samples=0, binary=False):
             is the strategy where measurements y in preparations x return the i-th
             result. A conventional ordering is to take the lexicographic one:
             `[(x0, y0), (x0, y1), (x1, y0), (x1, y1), (x2, y0), (x2, y1)]`
-
-    Todo:
-        * binary version
     """
 
     indeps = np.asarray(independent_strategies(ma, mb, my, samples, segmented=True))
@@ -104,8 +102,16 @@ def detpoints(ma, mb, mx, my, samples=0, binary=False):
         # Find *all* allowed oderings for the segments (thus generating *all* det. points).
         orderings = [r for r in product(range(ma), repeat=mx) if iselement(range(ma), r)]
 
-    detps = indeps[:,orderings,:].reshape(-1, mx * my)
-    return np.unique(detps, axis=0)
+    detps = np.unique(indeps[:,orderings,:].reshape(-1, mx * my), axis=0)
+    if binary:
+        # Write down the position of each "1" as a sparse matrix then get dense one:
+        idxs = detps + range(0, mb * mx * my, mb)  # Position to indicate each outcome.
+        r, c = idxs.shape
+        row = np.concatenate([np.ones(c, dtype=int) * i for i in range(r)])
+        col = np.concatenate(idxs)
+        detps = np.asarray(coo_matrix((np.ones_like(col), (row, col))).todense())
+
+    return detps
 
 
 def symmetries(mb, mx, my):
@@ -134,7 +140,7 @@ def symmetries(mb, mx, my):
     return names, maps
 
 
-def export(mb, mx, my, detps, fname, named=True, symmetries=True, lrs=False):
+def export(mb, mx, my, detps, fname, named=True, symms=True, lrs=False):
     """Export `detps` to an lrs or PANDA-readable file named `fname` (will overwrite).
 
     Vertices of `detps` should be given row-wise. If `lrs`, the output will have
@@ -159,7 +165,9 @@ def export(mb, mx, my, detps, fname, named=True, symmetries=True, lrs=False):
     else:
         if named:
             names, maps = symmetries(mb, mx, my)
-            exp = "Names\n" + names + "\nMaps\n" + maps + "\n"
+            exp = "Names\n" + names + "\n"
+            if symms:
+                exp += "Maps\n" + maps + "\n"
         else:
             exp = ""
         exp += f"Vertices\n" + "\n".join([" ".join(map(str, strategy)) for strategy in detps])
@@ -180,5 +188,5 @@ if __name__ == "__main__":
     parser.add_argument("--lrs", action="store_true", help="Output in lrs format")
     args = parser.parse_args()
 
-    detps = detstrategies(args.ma, args.mb, args.mx, args.my)
-    export(args.mb, args.mx, args.my, detps, args.fname, args.nonames, args.nosymms, args.lrs)
+    detps = detpoints(args.ma, args.mb, args.mx, args.my, binary=True)
+    export(args.mb, args.mx, args.my, detps, args.output, args.nonames, args.nosymms, args.lrs)
