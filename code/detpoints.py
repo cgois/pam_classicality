@@ -65,7 +65,7 @@ def independent_strategies(ma, mb, my, samples=0, segmented=False):
         return detp
 
 
-def detpoints(ma, mb, mx, my, samples=0, binary=False):
+def detpoints(ma, mb, mx, my, samples=0, binary=False, normalized=True):
     """Build a PAM scenario's deterministic strategies.
 
     Sample independent strategies for `ma` preparations then repeat `mx - ma` blocks
@@ -81,6 +81,7 @@ def detpoints(ma, mb, mx, my, samples=0, binary=False):
             a single `1` indicating the obtained outcome. E.g.: will turn a strategy
             [0, 2, 1, 0] into [1, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0], which is the more
             conventional way of listing strategies.
+        normalized: if `True`, will remove each `mb`-th outcome from binary format.
 
     Returns:
         list: each row is a strategy in which the coefficients `i` stand for the
@@ -105,21 +106,21 @@ def detpoints(ma, mb, mx, my, samples=0, binary=False):
     detps = np.unique(indeps[:,orderings,:].reshape(-1, mx * my), axis=0)
     if binary:
         # Write down the position of each "1" as a sparse matrix then get dense one:
-        idxs = detps + range(0, mb * mx * my, mb)  # Position to indicate each outcome.
+        b_0s = range(0, mb * mx * my, mb)
+        idxs = detps + b_0s  # Position to indicate each outcome.
         r, c = idxs.shape
         row = np.concatenate([np.ones(c, dtype=int) * i for i in range(r)])
         col = np.concatenate(idxs)
         detps = np.asarray(coo_matrix((np.ones_like(col), (row, col))).todense())
 
+        if normalized:
+            detps = np.delete(detps, b_0s, axis=1)
+
     return detps
 
 
 def symmetries(mb, mx, my):
-    """List all symmetries in the behaviors.
-
-    Todo:
-        * Testing
-    """
+    """List all symmetries in the behaviors."""
 
     names = [[[f"p({b}|{x}{y})" for b in range(mb)] for y in range(my)] for x in range(mx)]
     names = np.asarray(names)
@@ -136,14 +137,7 @@ def symmetries(mb, mx, my):
     out_perms = [np.concatenate(out_perms[:,:,i,:], axis=None)
                  for i in range(out_perms.shape[2])]
 
-    # prep_perms = list(permutations(range(mx)))
-    # meas_perms = list(permutations(range(my)))
-
-    # maps = names[:,:,outcome_perms]
-    # maps = np.concatenate((maps, names[prep_perms,:,:]))
-    # maps = np.concatenate((maps, names[:,meas_perms,:]))
     maps = out_perms + prep_perms + meas_perms
-    # maps = "\n".join([" ".join(m) for m in maps.reshape(-1, mb * mx * my)])
     maps = "\n".join([" ".join(m) for m in maps])
     names = " ".join(names.reshape(mb * mx * my))
 
@@ -174,7 +168,7 @@ def export(mb, mx, my, detps, fname, named=True, symms=True, lrs=False):
         exp += "\n".join([" ".join(map(str, [1, *strategy])) for strategy in detps])
     else:
         if named:
-            names, maps = symmetries(mb, mx, my)
+            names, maps = symmetries(mb - 1, mx, my)  # -1 to account for normalization.
             exp = "Names\n" + names + "\n"
             if symms:
                 exp += "Maps\n" + maps + "\n"
@@ -198,5 +192,5 @@ if __name__ == "__main__":
     parser.add_argument("--lrs", action="store_true", help="Output in lrs format")
     args = parser.parse_args()
 
-    detps = detpoints(args.ma, args.mb, args.mx, args.my, binary=True)
+    detps = detpoints(args.ma, args.mb, args.mx, args.my, binary=True, normalized=True)
     export(args.mb, args.mx, args.my, detps, args.output, args.nonames, args.nosymms, args.lrs)
