@@ -122,20 +122,30 @@ def symmetries(mb, mx, my):
     """
 
     names = [[[f"p({b}|{x}{y})" for b in range(mb)] for y in range(my)] for x in range(mx)]
+    names = np.asarray(names)
 
-    outcome_perms = list(permutations(range(mb)))
-    prep_perms = list(permutations(range(mx)))
-    meas_perms = list(permutations(range(my)))
+    prep_perms = names[list(permutations(range(mx))),:,:]
+    prep_perms = [np.concatenate(prep_perms[i,:,:,:], axis=None)
+                  for i in range(prep_perms.shape[0])]
 
-    maps = np.asarray(names)[:,:,outcome_perms]
-    maps = np.asarray([maps[prep_perms,:,:,i] for i in range(mb)])
-    maps = np.asarray([maps[i,j,:,meas_perms,:]
-                       for i in range(maps.shape[0])
-                       for j in range(maps.shape[1])])
+    meas_perms = names[:,list(permutations(range(my))),:]
+    meas_perms = [np.concatenate(meas_perms[:,i,:,:], axis=None)
+                  for i in range(meas_perms.shape[1])]
 
+    out_perms = names[:,:,list(permutations(range(mb)))]
+    out_perms = [np.concatenate(out_perms[:,:,i,:], axis=None)
+                 for i in range(out_perms.shape[2])]
 
-    maps = "\n".join([" ".join(m) for m in maps.reshape(-1, mb * mx * my)])
-    names = " ".join(np.asarray(names).reshape(mb * mx * my))
+    # prep_perms = list(permutations(range(mx)))
+    # meas_perms = list(permutations(range(my)))
+
+    # maps = names[:,:,outcome_perms]
+    # maps = np.concatenate((maps, names[prep_perms,:,:]))
+    # maps = np.concatenate((maps, names[:,meas_perms,:]))
+    maps = out_perms + prep_perms + meas_perms
+    # maps = "\n".join([" ".join(m) for m in maps.reshape(-1, mb * mx * my)])
+    maps = "\n".join([" ".join(m) for m in maps])
+    names = " ".join(names.reshape(mb * mx * my))
 
     return names, maps
 
