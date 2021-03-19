@@ -48,6 +48,14 @@ def outer(vec1, vec2=None):
     return vec1 @ vec2.conj().T
 
 
+def is_psd(matrix):
+    return np.all(np.linalg.eigvals(matrix) >= 0)
+
+
+def is_projection(matrix):
+    return np.all(np.isclose(matrix, matrix @ matrix))
+
+
 def hemispherectomy(func):
     """Removes all 'southern hemisphere' vectors."""
 
@@ -271,6 +279,21 @@ def random_pure_state(dim=2, density=False):
     if density:
         st = outer(st)
     return st
+
+
+# def random_projective_measurement(dim=2):
+#     """Generates a random projective measurement with rank-1 effects.
+
+#     Args:
+#         dim: effects dimension.
+
+#     Returns:
+#         list: each element is a trace-1 PSD matrix, and elements sum to identity.
+#     """
+
+#     effects = [random_pure_state(dim, density=True) for _ in range(dim - 1)]
+#     effects.append(np.eye(dim) - sum(effects))
+#     return effects
 
 
 
