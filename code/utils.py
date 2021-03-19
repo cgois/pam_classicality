@@ -52,8 +52,39 @@ def is_psd(matrix):
     return np.all(np.linalg.eigvals(matrix) >= 0)
 
 
+def is_herm(matrix):
+    return np.all(matrix == matrix.conj().T)
+
+
 def is_projection(matrix):
     return np.all(np.isclose(matrix, matrix @ matrix))
+
+
+def is_measurement(meas):
+
+    dims = meas[0].shape
+
+    try:
+        square = len(dims) == 2 and dims[0] == dims[1]
+        same_dim = np.all(np.asarray([eff.shape for eff in meas]) == dims)
+        psd = np.all([is_psd(ef) for ef in meas])
+        complete = np.all(sum(meas) == np.eye(dims[0]))
+    except (ValueError, np.linalg.LinAlgError):
+        return False
+
+    return square and same_dim and psd and complete
+
+
+def is_state(matrix):
+
+    try:
+        trace_one = np.isclose(np.trace(matrix), 1)
+        psd = is_psd(matrix)
+        herm = is_herm(matrix)
+    except (ValueError, np.linalg.LinAlgError):
+        return False
+
+    return trace_one and psd and herm
 
 
 def hemispherectomy(func):
