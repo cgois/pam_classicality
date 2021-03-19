@@ -5,18 +5,47 @@ from itertools import product, chain
 import numpy as np
 from numpy import sin, cos
 import picos
+import scipy as sp
 from scipy.spatial import ConvexHull
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
+from more_itertools import random_permutation
 
-
-"""Decorators and generalities"""
+"""Decorators, generalities and basic functions."""
 
 def chunks(lst, n):
     """Split lst into n chunks."""
 
     return [lst[i:i + n] for i in range(0, len(lst), max(1, n))]
+
+
+# def basis(dim=2):
+#     return np.vsplit(np.eye(dim), dim)
+
+def outer(vec1, vec2=None):
+    """Outer product (with complex conjugation) between `vec1` and `vec2`
+
+    If `vec2` is not supplied, return outer product of `vec1` with itself
+
+    Args:
+        vec1: ndarray either with shape (n,) or (n,1)
+        vec2: ndarray either with shape (n,) or (n,1)
+
+    Returns:
+        ndarray: outer product (with complex conjugation) between `vec1` and
+            `vec2`, or between `vec1` and itself it `vec2` not given.
+"""
+
+    if vec1.ndim == 1:
+        vec1 = vec1[:,None]
+    if vec2:
+        if vec2.ndim == 1:
+            vec2 = vec2[:,None]
+    else:
+        vec2 = vec1
+
+    return vec1 @ vec2.conj().T
 
 
 def hemispherectomy(func):
@@ -166,6 +195,85 @@ def bloch2matrix(vec):
     return np.eye(dim) / dim + sum(gms) / 2
 
 
+"""Random stuff"""
+
+
+@normalize
+def uniform_sphere(N=1, dim=3):
+    """Uniform d-sphere sampling.
+
+    Method: Sample from the normal distribution and normalize.
+    Ref.: Sec. 2.1 @ http://compneuro.uwaterloo.ca/files/publications/voelker.2017.pdf
+
+    Args:
+        N (int): nof. points to sample.
+        dim (int): dimension where the sphere is embedded (nof. components in vector)
+
+    Returns:
+        ndarray: `N x dim` matrix where each row is a uniformly sampled point on the sphere.
+    """
+
+    return np.random.normal(0, 1, [N, dim])
+
+
+def uniform_ball(N=1, dim=3):
+    """Uniform d-ball sampling
+
+    Method: Uniform sphere sampling in `dim + 2` then discard extra coordinates.
+    Ref.: Sec. 3.1 @ http://compneuro.uwaterloo.ca/files/publications/voelker.2017.pdf
+
+    Args:
+        N (int): nof. points to sample.
+        dim (int): dimension where the ball is embedded (nof. components in vector)
+
+    Returns:
+        ndarray: `N x dim` matrix where each row is a uniformly sampled point in the ball.
+    """
+
+    coords = uniform_sphere(N, dim + 2)
+    return coords[:, 0:dim]
+
+
+def randnz(shape, norm=1/np.sqrt(2)):
+
+    real = np.random.normal(0, 1, shape)
+    imag = 1j * np.random.normal(0, 1, shape)
+    return (real + imag) * norm
+
+
+def random_unitary_haar(dim=2):
+    """Random unitary matrix according to Haar measure.
+
+    Ref.: https://arxiv.org/abs/math-ph/0609050v2
+    """
+
+    q, r = sp.linalg.qr(randnz((dim, dim)))
+    m = np.diagonal(r)
+    m = m / np.abs(m)
+    return np.multiply(q, m, q)
+
+
+def random_pure_state(dim=2, density=False):
+    """Generates a random pure quantum state of dimension `dim` in Haar measure.
+
+    Takes first column of a Haar-random unitary operator.
+
+    Args:
+        dim: dimension of the state vectors (2 for qubits, 3 for qutrits etc.)
+        density: if `True`, returns a density matrix instead of state vector.
+
+    Returns:
+        ndarray: a `dim`-length state vector if `density == False`, else a
+            `dim x dim` density operator.
+    """
+
+    st = random_unitary_haar(dim)[:,0]
+    if density:
+        st = outer(st)
+    return st
+
+
+
 """Geometry and polyhedra"""
 
 def insphere_radius(verts):
@@ -189,42 +297,6 @@ def rotate(vectors, alpha, beta, gamma):
                      [0, sin(gamma), cos(gamma)]])
 
     return (yaw @ pitch @ roll @ vectors.T).T
-
-
-@normalize
-def uniform_sphere(N, dim=3):
-    """Uniform d-sphere sampling.
-
-    Method: Sample from the normal distribution and normalize.
-    Ref.: Sec. 2.1 @ http://compneuro.uwaterloo.ca/files/publications/voelker.2017.pdf
-
-    Args:
-        N (int): nof. points to sample.
-        dim (int): dimension where the sphere is embedded (nof. components in vector)
-
-    Returns:
-        ndarray: `N x dim` matrix where each row is a uniformly sampled point on the sphere.
-    """
-
-    return np.random.normal(0, 1, [N, dim])
-
-
-def uniform_ball(N, dim=3):
-    """Uniform d-ball sampling
-
-    Method: Uniform sphere sampling in `dim + 2` then discard extra coordinates.
-    Ref.: Sec. 3.1 @ http://compneuro.uwaterloo.ca/files/publications/voelker.2017.pdf
-
-    Args:
-        N (int): nof. points to sample.
-        dim (int): dimension where the ball is embedded (nof. components in vector)
-
-    Returns:
-        ndarray: `N x dim` matrix where each row is a uniformly sampled point in the ball.
-    """
-
-    coords = uniform_sphere(N, dim + 2)
-    return coords[:, 0:dim]
 
 
 @normalize
