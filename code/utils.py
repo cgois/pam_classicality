@@ -1,6 +1,3 @@
-# TODO: Documentatation.
-
-
 import time
 import functools
 from itertools import product, chain
@@ -23,31 +20,28 @@ def chunks(lst, n):
 
 
 def hemispherectomy(func):
-    """Removes all southern hemisphere vectors."""
+    """Removes all 'southern hemisphere' vectors."""
 
     @functools.wraps(func)
     def hemispherectomy_wrapper(*args):
-        coords = func(*args)
-        negs = [r for r in range(coords.shape[0]) if coords[r, -1] < 0]
-        coords = np.delete(coords, negs, axis=0)
+        vecs = func(*args)
+        negs = [r for r in range(vecs.shape[0]) if vecs[r, -1] < 0]
+        vecs = np.delete(vecs, negs, axis=0)
 
-        return coords
+        return vecs
     return hemispherectomy_wrapper
 
 
 def antipodals(func):
     """Takes a function that generates vectors and appends their antipodals
-    to the result.
 
-    The antipodals will follow the same ordering in the second half
-    of the returned list of values."""
+    The antipodals will be intercalated maintaining ordering.
+    """
 
     @functools.wraps(func)
     def antipodals_wrapper(*args):
-        coords = func(*args)
-        antipods = -coords
-
-        return np.r_[coords, antipods]
+        vecs = func(*args)
+        return np.ravel([vecs, -vecs], order="F").reshape(vecs.shape[1], -1).T
     return antipodals_wrapper
 
 
@@ -169,7 +163,7 @@ def bloch2matrix(vec):
     assert len(gms) == len(vec), "Dimension mismatch"
 
     gms = [vec[i] * gms[i] for i in range(len(vec))]
-    return (1 / dim) * np.eye(dim) + sum(gms) / 2
+    return np.eye(dim) / dim + sum(gms) / 2
 
 
 """Geometry and polyhedra"""
@@ -179,8 +173,6 @@ def insphere_radius(verts):
 
     hull = ConvexHull(verts)
     return np.min(np.abs(hull.equations[:, -1]))  # abs as equations are Ax + b <= 0.
-
-
 
 
 def rotate(vectors, alpha, beta, gamma):
@@ -346,6 +338,7 @@ def incompatibility_robustness(*measurements, **kwargs):
 
     Todo:
         * Generalize to measurements with more than `dim` effects
+        * Generalize to measurements with different nof. effects.
     """
 
     if "solver" not in kwargs:
