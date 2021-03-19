@@ -65,7 +65,7 @@ def independent_strategies(ma, mb, my, samples=0, segmented=False):
         return detp
 
 
-def detpoints(ma, mb, mx, my, samples=0, binary=False, normalized=True):
+def build_detpoints(ma, mb, mx, my, samples=0, binary=True, normalized=False)
     """Build a PAM scenario's deterministic strategies.
 
     Sample independent strategies for `ma` preparations then repeat `mx - ma` blocks
@@ -192,5 +192,5 @@ if __name__ == "__main__":
     parser.add_argument("--lrs", action="store_true", help="Output in lrs format")
     args = parser.parse_args()
 
-    detps = detpoints(args.ma, args.mb, args.mx, args.my, binary=True, normalized=True)
+    detps = build_detpoints(args.ma, args.mb, args.mx, args.my, binary=True, normalized=True)
     export(args.mb, args.mx, args.my, detps, args.output, args.nonames, args.nosymms, args.lrs)
