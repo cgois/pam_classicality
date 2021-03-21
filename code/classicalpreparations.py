@@ -15,7 +15,11 @@ ZERO_TOL = 1E-6
 SEPARATOR = "-" * 40
 
 
-def max_visibility_classical(preps, meas, detpoints, verb=-1, solver="gurobi"):
+def max_classical_measurement_visibility():
+    pass
+
+
+def max_classical_state_visibility(preps, meas, detpoints, verb=-1, solver="gurobi"):
     """Find best PAM-classical model for `preps` given `meas` and `detpoints`.
 
     Args:
@@ -58,7 +62,7 @@ def max_visibility_classical(preps, meas, detpoints, verb=-1, solver="gurobi"):
     return prob.solve()
 
 
-def optimize_classical_model(preps, ma, meas, mb, ndetps, rounds,
+def optimal_classical_model(preps, ma, meas, mb, ndetps, rounds, optfunc,
                              verb=-1, solver="gurobi"):
     """Iterative search for the best classical model iteratively.
 
@@ -68,6 +72,7 @@ def optimize_classical_model(preps, ma, meas, mb, ndetps, rounds,
     4. Break if optval = 1 or if the opt. values of last 'rounds' rounds were equal.
 
     Todo:
+        * Documentation.
         * If take `meas` as, e.g., [[X0, X1], [Z0, Z1]] may infer mb.
     """
 
@@ -83,7 +88,7 @@ def optimize_classical_model(preps, ma, meas, mb, ndetps, rounds,
     while(optvals[-1] != 1 and not
           np.all(np.isclose(optvals, optvals[-1], rtol=RTOL, atol=ATOL))):
 
-        result = max_visibility_classical(preps, meas, detpoints, verb, solver)
+        result = optfunc(preps, meas, detpoints, verb, solver)
         optvals.append(result.value)
         optvals.pop(0)
 
