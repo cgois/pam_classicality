@@ -5,23 +5,23 @@ from itertools import product, chain
 import numpy as np
 from numpy import sin, cos
 import picos
-import scipy as sp
 from scipy.spatial import ConvexHull
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
 from more_itertools import random_permutation
 
-"""Decorators, generalities and basic functions."""
+
+ATOL = 1E-8
+
+
+"""Generalities and operations"""
 
 def chunks(lst, n):
     """Split lst into n chunks."""
 
     return [lst[i:i + n] for i in range(0, len(lst), max(1, n))]
 
-
-# def basis(dim=2):
-#     return np.vsplit(np.eye(dim), dim)
 
 def outer(vec1, vec2=None):
     """Outer product (with complex conjugation) between `vec1` and `vec2`
@@ -48,19 +48,52 @@ def outer(vec1, vec2=None):
     return vec1 @ vec2.conj().T
 
 
-def is_psd(matrix):
-    return np.all(np.linalg.eigvals(matrix) >= 0)
-
+"""Booleans"""
 
 def is_herm(matrix):
-    return np.all(matrix == matrix.conj().T)
+    """Check whether `matrix` is Hermitian."""
+
+    return np.allclose(matrix, matrix.conj().T)
+
+
+def is_psd(matrix):
+    """Test `matrix` for positive semi-definiteness."""
+
+    if is_herm(matrix):
+        return np.all(np.linalg.eigvalsh(matrix) >= - ATOL)
+    else:
+        return False
+
+
+def is_pd(matrix):
+    """Test `matrix` for positive-definiteness."""
+
+    try:
+        np.linalg.cholesky(matrix)
+    except np.linalg.LinAlgError:
+        return False
+    else:
+        return True
 
 
 def is_projection(matrix):
-    return np.all(np.isclose(matrix, matrix @ matrix))
+    """Check whether `matrix` is a projection operator."""
+
+    return np.allclose(matrix, matrix @ matrix)
 
 
 def is_measurement(meas):
+    """Check whether `meas` is a well-defined quantum measurement.
+
+    Args:
+        meas (list): list of ndarrays representing the measurement's effects.
+
+    Returns:
+        bool: returns `True` iff `meas` is composed of effects which are:
+            - Square matrices with the same dimension,
+            - Positive semi-definite, and
+            - Sum to the identity operator.
+    """
 
     dims = meas[0].shape
 
@@ -75,7 +108,16 @@ def is_measurement(meas):
     return square and same_dim and psd and complete
 
 
-def is_state(matrix):
+def is_dm(matrix):
+    """Check whether `matrix` is a well-defined density matrix.
+
+    Args:
+        matrix (ndarray): density operator to test.
+
+    Returns:
+        bool: returns `True` iff `matrix` has unit-trace, is positive semi-definite
+            and is hermitian.
+    """
 
     try:
         trace_one = np.isclose(np.trace(matrix), 1)
@@ -86,6 +128,8 @@ def is_state(matrix):
 
     return trace_one and psd and herm
 
+
+"""Decorators"""
 
 def hemispherectomy(func):
     """Removes all 'southern hemisphere' vectors."""
@@ -113,15 +157,15 @@ def antipodals(func):
     return antipodals_wrapper
 
 
-def normalize(func):
+def normalize_rows(func):
     """Make an array generating function return it with normalized rows."""
 
     @functools.wraps(func)
     def normalize_wrapper(*args):
-        meas = func(*args)
-        norm = np.sum(np.square(meas), 1) ** 0.5
+        array = func(*args)
+        norm = np.sum(np.square(array), 1) ** 0.5
 
-        return (meas.T / norm).T
+        return (array.T / norm).T
     return normalize_wrapper
 
 
@@ -140,7 +184,7 @@ def timeit(func):
     return timeit_wrapper
 
 
-"""Operator representations"""
+"""Operators and representations"""
 
 def gell_mann_matrix(j, k, dim=2):
     """Generalized Gell-Mann matrix with indexes j and k for given dimension.
@@ -196,6 +240,27 @@ def gell_mann_matrices(dim=2):
     return [gell_mann_matrix(*jk, dim) for jk in product(range(dim), repeat=2)][1:]
 
 
+def pauli_x():
+    """X Pauli matrix."""
+
+    return gell_mann_matrix(0, 1, dim=2)
+
+def pauli_y():
+    """Y Pauli matrix."""
+
+    return gell_mann_matrix(1, 0, dim=2)
+
+def pauli_z():
+    """Z Pauli matrix."""
+
+    return gell_mann_matrix(1, 1, dim=2)
+
+def pauli():
+    """List with Pauli matrices [X, Y, Z]."""
+
+    return gell_mann_matrices(dim=2)
+
+
 def matrix2bloch(operator):
     """Convert an operator to a Bloch vector in the Gell-Mann matrices basis.
 
@@ -236,8 +301,7 @@ def bloch2matrix(vec):
 
 """Random stuff"""
 
-
-@normalize
+@normalize_rows
 def uniform_sphere(N=1, dim=3):
     """Uniform d-sphere sampling.
 
@@ -274,6 +338,7 @@ def uniform_ball(N=1, dim=3):
 
 
 def randnz(shape, norm=1/np.sqrt(2)):
+    """Normally distributed complex number."""
 
     real = np.random.normal(0, 1, shape)
     imag = 1j * np.random.normal(0, 1, shape)
@@ -286,10 +351,14 @@ def random_unitary_haar(dim=2):
     Ref.: https://arxiv.org/abs/math-ph/0609050v2
     """
 
-    q, r = sp.linalg.qr(randnz((dim, dim)))
+    q, r = np.linalg.qr(randnz((dim, dim)))
     m = np.diagonal(r)
     m = m / np.abs(m)
     return np.multiply(q, m, q)
+
+
+def random_unitary_bures(dim=2):
+    pass
 
 
 def random_pure_state(dim=2, density=False):
@@ -312,6 +381,7 @@ def random_pure_state(dim=2, density=False):
     return st
 
 
+# TODO: Find a way to generate random projective measurements:
 # def random_projective_measurement(dim=2):
 #     """Generates a random projective measurement with rank-1 effects.
 
@@ -325,6 +395,10 @@ def random_pure_state(dim=2, density=False):
 #     effects = [random_pure_state(dim, density=True) for _ in range(dim - 1)]
 #     effects.append(np.eye(dim) - sum(effects))
 #     return effects
+
+
+def random_povm(dim=2):
+    pass
 
 
 
@@ -353,7 +427,7 @@ def rotate(vectors, alpha, beta, gamma):
     return (yaw @ pitch @ roll @ vectors.T).T
 
 
-@normalize
+@normalize_rows
 @antipodals
 def octa():
     """Vertices of an octahedron."""
@@ -361,7 +435,7 @@ def octa():
     return np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
 
-@normalize
+@normalize_rows
 @antipodals
 def icos():
     """Vertices of an icosahedron."""
@@ -373,7 +447,7 @@ def icos():
                      [b, 0, a], [-b, 0, a]])
 
 
-@normalize
+@normalize_rows
 @antipodals
 def romb():
     """Vertices of a rombicuboctahedron."""
@@ -385,7 +459,7 @@ def romb():
                       [b, a, a], [-b, -a, a], [b, -a, a], [-b, a, a]])
 
 
-@normalize
+@normalize_rows
 @antipodals
 def dod():
     """Vertices of a dodecahedron."""
@@ -499,7 +573,15 @@ def incompatibility_robustness(*measurements, **kwargs):
 
 
 def plot_measurements(meas, insphere=True):
-    """Plot measurement vertices on the Bloch sphere, their hull and the inscribed sphere."""
+    """Plot measurement vertices on the Bloch sphere and their convex hull.
+
+    Args:
+        meas (ndarray): row-wise matrix of Bloch vectors.
+        insphere (bool): plot largest sphere that can be inscribed in `meas`.
+
+    Returns:
+        matplotlib.Axes
+    """
 
     chull = ConvexHull(meas)
     polys = Poly3DCollection([chull.points[simplex]
