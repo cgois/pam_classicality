@@ -15,16 +15,20 @@ ZERO_TOL = 1E-6
 SEPARATOR = "-" * 40
 
 
-def max_classical_measurement_visibility():
-    pass
-
-
-def max_classical_state_visibility(preps, meas, detpoints, verb=-1, solver="gurobi"):
+def max_classical_preps_visibility(preps, meas, detpoints, verb=-1, solver="gurobi"):
     """Find best PAM-classical model for `preps` given `meas` and `detpoints`.
 
+    Ref.: Program 6 in https://arxiv.org/abs/2101.10459
+
+    This function does not check for valid preparations and measurements.
+    You must make sure all Bloch vectors in `preps` are valid, with all the same
+    dimensions, and likewise for the ones in `meas`.
+
     Args:
-        preps: list of ndarrays of density operators (all with same dimensions).
-        meas: ordered list of effects (ndarrays) following, e.g. `[Z0, Z1, X0, X1]`.
+        preps (ndarray): row-wise Bloch vectors of density operators.
+        meas (ndarray): Bloch vectors of measurement effects following. May be either
+            given as ordered row-wise vectors e.g. `[Z0, Z1, X0, X1]` or nested as
+            e.g. `[[Z0, Z1], [X0, X1]]`.
         detpoints: row-wise deterministic strategies to consider.
         verb: solver verbosity level.
         solver: any LP solver accepted by `picos`.
@@ -35,8 +39,10 @@ def max_classical_state_visibility(preps, meas, detpoints, verb=-1, solver="guro
             for each strategy in `detpoints`.
     """
 
+    if meas.ndim == 3:  # Flatten measurements if nested.
+        meas = np.asarray(list(chain(*meas)))
     dim = preps[0].shape[0]
-    eta = insphere_radius([matrix2bloch(m) for m in meas])
+    eta = insphere_radius(meas)
 
     vis = pic.RealVariable("visibility", 1)
     weights = pic.RealVariable("weights", detpoints.shape[0])
@@ -45,15 +51,10 @@ def max_classical_state_visibility(preps, meas, detpoints, verb=-1, solver="guro
     prob.set_objective("max", vis)
     prob.add_list_of_constraints([vis >= 0, vis <= 1, weights >= 0, pic.sum(weights) == 1])
 
-    behaviors = []
-    for i in range(len(preps)):
-        o_x = (vis / eta) * preps[i] + (1 - vis / eta) * np.eye(dim) / dim
-        for j in range(len(meas)):
-            # [tr(O0 M(0|0)), tr(O1 M(0|0)), ..., tr(O0 M(1|0)), ..., tr(Omx M(mb|my)]
-            behaviors.append(pic.trace(o_x * meas[j]))
-
-    model = detpoints.T * weights
-    prob.add_list_of_constraints([behaviors[i] == model[i] for i in range(len(behaviors))])
+    # Classical preparations model constraint:
+    dot = np.inner(preps, meas).flatten()
+    behaviors = 1 / dim + (1 / 2) * vis * dot / eta
+    prob.add_constraint(behaviors == detpoints.T * weights)
 
     prob.options.solver = solver
     prob.options.verbosity = verb
@@ -62,18 +63,80 @@ def max_classical_state_visibility(preps, meas, detpoints, verb=-1, solver="guro
     return prob.solve()
 
 
-def optimal_classical_model(preps, ma, meas, mb, ndetps, rounds, optfunc,
+def max_classical_meas_visibility(preps, meas, detpoints, verb=-1, solver="gurobi"):
+    """Find best PAM-classical model for `meas` given `preps` and `detpoints`.
+
+    Ref.: Maximization version of program 9 in https://arxiv.org/abs/2101.10459
+
+    This function does not check for valid preparations and measurements.
+    You must make sure all Bloch vectors in `preps` are valid, with all the same
+    dimensions, and likewise for the ones in `meas`.
+
+    Args:
+        preps (ndarray): row-wise Bloch vectors of density operators.
+        meas (ndarray): Bloch vectors of measurement effects following. May be either
+            given as ordered row-wise vectors e.g. `[Z0, Z1, X0, X1]` or nested as
+            e.g. `[[Z0, Z1], [X0, X1]]`.
+        detpoints (ndarray): row-wise deterministic strategies to consider.
+        verb (int): solver verbosity level in [-1, 0, 1].
+        solver (string): any LP solver accepted by `picos`.
+
+    Returns:
+        picos.Solution: its 'value' attribute is the maximum visibility s.t. a
+            PAM-classical model exists, and in "primals" are the optimized weights
+            for each strategy in `detpoints`.
+    """
+
+    if meas.ndim == 3:  # Flatten measurements if nested.
+        meas = np.asarray(list(chain(*meas)))
+    dim = preps[0].shape[0]
+    eta = insphere_radius(preparations)
+
+    vis = pic.RealVariable("visibility", 1)
+    weights = picos.RealVariable("weights", detpoints.shape[0])
+
+    prob = pic.Problem()
+    prob.set_objective("max", vis)
+    prob.add_list_of_constraints([vis >= 0, vis <= 1, weights >= 0, pic.sum(weights) == 1])
+
+    # Classical measurement model constraint:
+    dot = np.inner(preps, meas).flatten()
+    behaviors = 1 / dim + (1 / 2) * vis * dot / eta
+    prob.add_constraint(behaviors == detpoints.T * weights)
+
+    prob.options.solver = solver
+    prob.options.verbosity = verb
+    prob.license_warnings = False
+
+    return prob.solve()
+
+
+def optimal_classical_model(preps, meas, ma, mb, ndetps, rounds, optfunc,
                              verb=-1, solver="gurobi"):
     """Iterative search for the best classical model iteratively.
 
-    1. Find best model with self.ndetp starting strategies.
+    1. Find best model through `optfunc` with `ndetp` starting strategies.
     2. Select the strategies with nonzero weights and discard the others.
     3. Complete the ones we kept with new randomly sampled strategies and run again.
     4. Break if optval = 1 or if the opt. values of last 'rounds' rounds were equal.
 
-    Todo:
-        * Documentation.
-        * If take `meas` as, e.g., [[X0, X1], [Z0, Z1]] may infer mb.
+    Args:
+        preps (ndarray): row-wise Bloch vectors of density operators.
+        ma (int): classical preparations dimension.
+        meas (ndarray): Bloch vectors of measurement effects following. May be either
+            given as ordered row-wise vectors e.g. `[Z0, Z1, X0, X1]` or nested as
+            e.g. `[[Z0, Z1], [X0, X1]]`.
+        mb (int): nof. effects per measurement.
+        ndetps (int): nof. deterministic strategies to use in each round.
+        rounds (int): nof. rounds with no improvement in model before breaking.
+        optfunc (function): function that optimizes the model.
+        verb (int): solver verbosity level in [-1, 0, 1].
+        solver (string): any LP solver accepted by `picos`.
+
+    Returns:
+        picos.Solution: its 'value' attribute is the maximum visibility s.t. a
+            PAM-classical model exists, and in "primals" are the optimized weights
+            for each strategy in `detpoints`.
     """
 
     mx, my = len(preps), len(meas) // mb
@@ -106,6 +169,19 @@ def optimal_classical_model(preps, ma, meas, mb, ndetps, rounds, optfunc,
     'nof. weights != nof. detpoints after optimizing local model!'
 
     return result
+
+
+def preparations_classicality(preps, meas, ma, mb, ndetps, rounds, verb=-1):
+    """Specify `optimal_classical_model` to preparations classicality."""
+
+    return optimal_classical_model(preps, meas, ma, mb, ndetps, rounds,
+                                   optfunc=max_classical_preps_visibility, verb=verb)
+
+def measurements_classicality(preps, meas, ma, mb, ndetps, rounds, verb=-1):
+    """Specify `optimal_classical_model` to measurements classicality."""
+    
+    return optimal_classical_model(preps, meas, ma, mb, ndetps, rounds,
+                                   optfunc=max_classical_meas_visibility, verb=verb)
 
 
 if __name__ == '__main__':
