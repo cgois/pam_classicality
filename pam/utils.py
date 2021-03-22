@@ -545,7 +545,7 @@ def incompatibility_robustness(*measurements, **kwargs):
         kwargs["solver"] = "cvxopt"
     if "verb" not in kwargs:
         kwargs["verb"] = 0
-    dim = len(args[0])  # Only works for measurements with dim effects
+    dim = len(measurements[0])  # Only works for measurements with dim effects
 
     eta = picos.RealVariable("Robustness", 1)
     parent = [picos.HermitianVariable(f"G{i}", dim)
@@ -562,7 +562,7 @@ def incompatibility_robustness(*measurements, **kwargs):
         for oper in range(dim):
             parent_equiv = sum(chain(*view[oper::dim]))
             prob.add_constraint(parent_equiv ==
-                                eta * meas[oper] + (1 - eta) * eye(dim) / dim)
+                                eta * meas[oper] + (1 - eta) * np.eye(dim) / dim)
         block_size *= dim
 
     prob.set_objective("max", eta)
