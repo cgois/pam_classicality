@@ -10,8 +10,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
 
-import ..code as pam
-from ..code import mirror_symmetric, bloch2matrix, incompatibility_robustness
+import ..src as pam
+from ..src.utils import mirror_symmetric, bloch2matrix, incompatibility_robustness
 
 
 WORKERS = 8
@@ -30,7 +30,7 @@ def classicality(preps, meas, ma, mb, ndetps, rounds, verb=-1):
               f"meas. shape: {np.asarray(measurements).shape}")
 
     with ProcessPoolExecutor(max_workers=WORKERS) as executor:
-        results = list(tqdm(executor.map(pam.classicality.measurements_classicality,
+        results = list(tqdm(executor.map(pam.measurements_classicality,
                                         repeat(preps),
                                         meas,
                                         repeat(ma),
