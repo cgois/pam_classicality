@@ -18,7 +18,7 @@ ATOL = 1E-8
 """Generalities and operations"""
 
 def chunks(lst, n):
-    """Split lst into n chunks."""
+    """Split lst into chunks of size n."""
 
     return [lst[i:i + n] for i in range(0, len(lst), max(1, n))]
 
@@ -135,8 +135,8 @@ def hemispherectomy(func):
     """Removes all 'southern hemisphere' vectors."""
 
     @functools.wraps(func)
-    def hemispherectomy_wrapper(*args):
-        vecs = func(*args)
+    def hemispherectomy_wrapper(*args, **kwargs):
+        vecs = func(*args, **kwargs)
         negs = [r for r in range(vecs.shape[0]) if vecs[r, -1] < 0]
         vecs = np.delete(vecs, negs, axis=0)
 
@@ -151,8 +151,8 @@ def antipodals(func):
     """
 
     @functools.wraps(func)
-    def antipodals_wrapper(*args):
-        vecs = func(*args)
+    def antipodals_wrapper(*args, **kwargs):
+        vecs = func(*args, **kwargs)
         return np.ravel([vecs, -vecs], order="F").reshape(vecs.shape[1], -1).T
     return antipodals_wrapper
 
@@ -161,8 +161,8 @@ def normalize_rows(func):
     """Make an array generating function return it with normalized rows."""
 
     @functools.wraps(func)
-    def normalize_wrapper(*args):
-        array = func(*args)
+    def normalize_wrapper(*args, **kwargs):
+        array = func(*args, **kwargs)
         norm = np.sum(np.square(array), 1) ** 0.5
 
         return (array.T / norm).T
