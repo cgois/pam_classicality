@@ -1,2 +1,2 @@
-from utils import *
+import utils
 from classicality import *
