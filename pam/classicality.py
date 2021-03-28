@@ -20,6 +20,56 @@ SEPARATOR = "-" * 40
 
 """Optimization problems for preparations and measurements classicality"""
 
+def max_classical_visibility(preps, meas, detpoints, eta, verb=-1, solver="gurobi"):
+    """Find best PAM-classical model for the given parameters.
+
+    Ref.: Programs 6 and 9 in https://arxiv.org/abs/2101.10459
+
+    If given the preparations insphere radius, this will be equivalent to the
+    measurements classicality progam (maximization version of Program 9). Otherwise,
+    if the insphere is that of the measurements, this should be interpreted as
+    preparations classicality (program 6).
+
+    This function does not check for valid preparations and measurements.
+    You must make sure all Bloch vectors in `preps` are valid, with all the same
+    dimensions, and likewise for the ones in `meas`.
+
+    Args:
+        preps (ndarray): row-wise Bloch vectors of density operators.
+        meas (ndarray): Bloch vectors of measurement effects following. May be either
+            given as ordered row-wise vectors e.g. `[Z0, Z1, X0, X1]` or nested as
+            e.g. `[[Z0, Z1], [X0, X1]]`.
+        detpoints (ndarray): row-wise deterministic strategies to consider.
+        eta (float): insphere radius.
+        verb (int): solver verbosity level in {-1, 0, 1}.
+        solver (string): any LP solver accepted by `picos`.
+
+    Returns:
+        picos.Solution: its 'value' attribute is the maximum visibility s.t. a
+            PAM-classical model exists, and in "primals" are the optimized weights
+            for each strategy in `detpoints`.
+    """
+
+    vis = pic.RealVariable("visibility", 1)
+    weights = pic.RealVariable("weights", detpoints.shape[0])
+
+    prob = pic.Problem()
+    prob.set_objective("max", vis)
+    prob.add_list_of_constraints([vis >= 0, vis <= 1, weights >= 0, pic.sum(weights) == 1])
+
+    # Classical preparations model constraint:
+    dim = int(np.sqrt(preps[0].shape[0] + 1))  # Bloch vec. has d^2 - 1 entries.
+    dot = np.inner(preps, meas).flatten()
+    behaviors = 1 / dim + (1 / 2) * vis * dot / eta
+    prob.add_constraint(behaviors == detpoints.T * weights)
+
+    prob.options.solver = solver
+    prob.options.verbosity = verb
+    prob.license_warnings = False
+    
+    return prob.solve()
+
+
 def max_classical_preps_visibility(preps, meas, detpoints, verb=-1, solver="gurobi"):
     """Find best PAM-classical model for `preps` given `meas` and `detpoints`.
 
@@ -46,26 +96,9 @@ def max_classical_preps_visibility(preps, meas, detpoints, verb=-1, solver="guro
 
     if meas.ndim == 3:  # Flatten measurements if nested.
         meas = np.asarray(list(chain(*meas)))
-    dim = int(np.sqrt(preps[0].shape[0] + 1))  # Bloch vec. has d^2 - 1 entries.
-    eta = insphere_radius(meas)
+    meas_eta = insphere_radius(meas)
 
-    vis = pic.RealVariable("visibility", 1)
-    weights = pic.RealVariable("weights", detpoints.shape[0])
-
-    prob = pic.Problem()
-    prob.set_objective("max", vis)
-    prob.add_list_of_constraints([vis >= 0, vis <= 1, weights >= 0, pic.sum(weights) == 1])
-
-    # Classical preparations model constraint:
-    dot = np.inner(preps, meas).flatten()
-    behaviors = 1 / dim + (1 / 2) * vis * dot / eta
-    prob.add_constraint(behaviors == detpoints.T * weights)
-
-    prob.options.solver = solver
-    prob.options.verbosity = verb
-    prob.license_warnings = False
-    
-    return prob.solve()
+    return max_classical_visibility(preps, meas, detpoints, meas_eta, verb, solver)
 
 
 def max_classical_meas_visibility(preps, meas, detpoints, verb=-1, solver="gurobi"):
@@ -94,27 +127,9 @@ def max_classical_meas_visibility(preps, meas, detpoints, verb=-1, solver="gurob
 
     if meas.ndim == 3:  # Flatten measurements if nested.
         meas = np.asarray(list(chain(*meas)))
-    dim = int(np.sqrt(preps[0].shape[0] + 1))  # Bloch vec. has d^2 - 1 entries.
-    eta = insphere_radius(preps)
+    preps_eta = insphere_radius(preps)
 
-    vis = pic.RealVariable("visibility", 1)
-    weights = pic.RealVariable("weights", detpoints.shape[0])
-
-    prob = pic.Problem()
-    prob.set_objective("max", vis)
-    prob.add_list_of_constraints([vis >= 0, vis <= 1, weights >= 0, pic.sum(weights) == 1])
-
-    # Classical measurement model constraint:
-    dot = np.inner(preps, meas).flatten()
-    behaviors = 1 / dim + (1 / 2) * vis * dot / eta
-    prob.add_constraint(behaviors == detpoints.T * weights)
-
-    prob.options.solver = solver
-    prob.options.verbosity = verb
-    prob.license_warnings = False
-
-    return prob.solve()
-
+    return max_classical_visibility(preps, meas, detpoints, preps_eta, verb, solver)
 
 
 """Iterative deterministic strategies procedure implementation"""
@@ -179,16 +194,20 @@ def optimal_classical_model(preps, meas, ma, mb, ndetps, rounds, verb, solver, o
     return result.value
 
 
-preparations_classicality = partial(optimal_classical_model, optfunc=max_classical_preps_visibility)
-measurements_classicality = partial(optimal_classical_model, optfunc=max_classical_meas_visibility)
+# Use the following functions for preps./meas. classicality iterative procedure:
+preparations_classicality = partial(optimal_classical_model,
+                                    optfunc=max_classical_preps_visibility)
+measurements_classicality = partial(optimal_classical_model,
+                                    optfunc=max_classical_meas_visibility)
 
 
 """Parallelization"""
 
-def parrun(preps, meas, ma, mb, ndetps, rounds, workers, verb, solver, optfunc):
+def par_preparations_classicality(preps, meas, ma, mb, ndetps, rounds,
+                                  workers, verb, solver):
 
     with ProcessPoolExecutor(workers) as executor:
-        results = list(tqdm(executor.map(optfunc,
+        results = list(tqdm(executor.map(preparations_classicality,
                                          preps,
                                          repeat(meas),
                                          repeat(ma),
@@ -200,8 +219,20 @@ def parrun(preps, meas, ma, mb, ndetps, rounds, workers, verb, solver, optfunc):
     return results
 
 
-par_preparations_classicality = partial(parrun, optfunc=preparations_classicality)
-par_measurements_classicality = partial(parrun, optfunc=measurements_classicality)
+def par_measurements_classicality(preps, meas, ma, mb, ndetps, rounds,
+                                  workers, verb, solver):
+
+    with ProcessPoolExecutor(workers) as executor:
+        results = list(tqdm(executor.map(measurements_classicality,
+                                         repeat(preps),
+                                         meas,
+                                         repeat(ma),
+                                         repeat(mb),
+                                         repeat(ndetps),
+                                         repeat(rounds),
+                                         repeat(verb),
+                                         repeat(solver))))
+    return results
 
 
 if __name__ == '__main__':
