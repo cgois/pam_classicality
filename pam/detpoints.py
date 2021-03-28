@@ -51,8 +51,10 @@ def independent_strategies(ma, mb, my, samples=0, segmented=False):
     if samples:
         try:
             samples = sample(range(0, n_lambdas), samples)
-        except OverflowError: # Can't use unique sampling if n_lambdas is too large.
+        except OverflowError:  # Can't use unique sampling if n_lambdas is too large.
             samples = [randint(0, n_lambdas) for _ in range(samples)]
+        except ValueError:  # If more than n_lambdas points requested, use n_lambdas.
+            samples = range(0, n_lambdas)
         detp = [np.base_repr(el + shift, base=mb)[-width:] for el in samples]
     else:  # All strategies.
         detp = [np.base_repr(el + shift, base=mb)[-width:] for el in range(n_lambdas)]
@@ -94,13 +96,17 @@ def build_detpoints(ma, mb, mx, my, samples=0, binary=True, normalized=False):
 
     indeps = np.asarray(independent_strategies(ma, mb, my, samples, segmented=True))
 
+    # Find `n_ords` random orderings for the independent segments.
     if samples:
-        # Find one allowed random ordering for the segments.
-        orderings = random_product(range(ma), repeat=mx)
-        while not iselement(range(ma), orderings):
-            orderings = random_product(range(ma), repeat=mx)
+        # WARNING: If not enough independent samples, will not return *exactly* `samples`:
+        n_ords = samples // len(indeps)
+        orderings = []
+        while len(orderings) != n_ords:
+            order = random_product(range(ma), repeat=mx)
+            if iselement(range(ma), order):
+                orderings.append(order)
+    # Find *all* allowed oderings for the segments (thus generating *all* det. points).
     else:
-        # Find *all* allowed oderings for the segments (thus generating *all* det. points).
         orderings = [r for r in product(range(ma), repeat=mx) if iselement(range(ma), r)]
 
     detps = np.unique(indeps[:,orderings,:].reshape(-1, mx * my), axis=0)
