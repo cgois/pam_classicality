@@ -101,11 +101,28 @@ def is_measurement(meas):
         square = len(dims) == 2 and dims[0] == dims[1]
         same_dim = np.all(np.asarray([eff.shape for eff in meas]) == dims)
         psd = np.all([is_psd(ef) for ef in meas])
-        complete = np.all(sum(meas) == np.eye(dims[0]))
+        complete = np.allclose(sum(meas), np.eye(dims[0]))
     except (ValueError, np.linalg.LinAlgError):
         return False
 
     return square and same_dim and psd and complete
+
+
+def is_projective_measurement(meas):
+    """Check whether `meas` is a well-defined PVM.
+
+    Args:
+        meas (list): list of ndarrays representing the measurement's effects.
+
+    Returns:
+        bool: returns `True` iff `meas` is composed of effects which are:
+            - Square matrices with the same dimension,
+            - Positive semi-definite,
+            - Sum to the identity operator and
+            - Are projections.
+    """
+
+    return is_measurement and np.all([is_projection(e) for e in meas])
 
 
 def is_dm(matrix):
@@ -361,7 +378,7 @@ def random_unitary_bures(dim=2):
     pass
 
 
-def random_pure_state(dim=2, density=False):
+def random_pure_state(dim=2, density=True):
     """Generates a random pure quantum state of dimension `dim` in Haar measure.
 
     Takes first column of a Haar-random unitary operator.
@@ -382,19 +399,21 @@ def random_pure_state(dim=2, density=False):
 
 
 # TODO: Find a way to generate random projective measurements:
-# def random_projective_measurement(dim=2):
-#     """Generates a random projective measurement with rank-1 effects.
+def random_projective_measurement(dim=2):
+    """Generates a random projective measurement with rank-1 effects.
 
-#     Args:
-#         dim: effects dimension.
+    A random unitary is sampled according to Haar measure. It's rows
+    form a complete basis for the state space of dimension `dim`. We
+    take the outer product of each row and return these projections.
 
-#     Returns:
-#         list: each element is a trace-1 PSD matrix, and elements sum to identity.
-#     """
+    Args:
+        dim: effects dimension.
 
-#     effects = [random_pure_state(dim, density=True) for _ in range(dim - 1)]
-#     effects.append(np.eye(dim) - sum(effects))
-#     return effects
+    Returns:
+        list: each element is a trace-1 PSD matrix, and elements sum to identity.
+    """
+
+    return [outer(eff) for eff in random_unitary_haar(dim)]
 
 
 def random_povm(dim=2):
@@ -425,6 +444,11 @@ def rotate(vectors, alpha, beta, gamma):
                      [0, sin(gamma), cos(gamma)]])
 
     return (yaw @ pitch @ roll @ vectors.T).T
+
+
+@normalize_rows
+def tetrahedron():
+    return np.array([(1, 1, 1), (1, -1, -1), (-1, 1, -1), (-1, -1, 1)])
 
 
 @normalize_rows
