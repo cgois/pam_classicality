@@ -61,33 +61,33 @@ def plot(class_thetas, class_alphas, robust_thetas, robust_alphas):
 def main(verb=-1):
 
     # Testing params:
-    nthetas = 20
-    max_theta = np.pi / 2
-    ndetps = int(1e4)
-    rounds = 10
-    workers = 8
-    solver = "gurobi"
-
-    # Working params:
-    # nthetas = 50
+    # nthetas = 20
     # max_theta = np.pi / 2
-    # ndetps = int(.5e5)
-    # rounds = 50
+    # ndetps = int(1e4)
+    # rounds = 10
     # workers = 8
     # solver = "gurobi"
+
+    # Working params:
+    nthetas = 50
+    max_theta = np.pi / 2
+    ndetps = int(.5e5)
+    rounds = 50
+    workers = 10
+    solver = "gurobi"
 
     preps = romb()
     ma, mb = 2, 2
     thetas = np.linspace(0, max_theta, nthetas)
 
     chis = robustness(thetas)
-    basename = f"./robustness-msymm-"
+    basename = f"./robustness-msym-"
     np.save(basename + "thetas", thetas)
     np.save(basename + "chis", chis)
 
     meas = list(map(mirror_symmetric, thetas))
     alphas = classicality(preps, meas, ma, mb, ndetps, rounds, workers, verb, solver)
-    basename = f"./incompat-msymm-"
+    basename = f"./class-msym-"
     np.save(basename + "thetas", thetas)
     np.save(basename + "alphas", alphas)
 

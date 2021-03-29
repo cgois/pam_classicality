@@ -204,7 +204,7 @@ measurements_classicality = partial(optimal_classical_model,
 """Parallelization"""
 
 def par_preparations_classicality(preps, meas, ma, mb, ndetps, rounds,
-                                  workers, verb, solver):
+                                  workers, verb=-1, solver="gurobi"):
 
     with ProcessPoolExecutor(workers) as executor:
         results = list(tqdm(executor.map(preparations_classicality,
@@ -220,7 +220,7 @@ def par_preparations_classicality(preps, meas, ma, mb, ndetps, rounds,
 
 
 def par_measurements_classicality(preps, meas, ma, mb, ndetps, rounds,
-                                  workers, verb, solver):
+                                  workers, verb=-1, solver="gurobi"):
 
     with ProcessPoolExecutor(workers) as executor:
         results = list(tqdm(executor.map(measurements_classicality,
